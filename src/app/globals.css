@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: var(--theme-background, #f6f8f6);
+  color: #17251f;
+  font-family: Arial, Helvetica, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--theme-background, #f6f8f6);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: #d9f2e8;
+  color: #083b2b;
+}

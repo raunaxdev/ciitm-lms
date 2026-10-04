@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  USER
+}
+
+enum TransactionStatus {
+  ISSUED
+  RETURNED
+  OVERDUE
+  LOST
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Profile {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         Role          @default(USER)
+  rollNumber   String?       @unique
+  department   String?       @default("General")
+  isActive     Boolean       @default(true)
+  transactions Transaction[]
+  bookRequests BookRequest[]
+  auditLogs    AuditLog[]    @relation("AuditActor")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([role, isActive])
+  @@index([department])
+  @@index([rollNumber])
+}
+
+model Book {
+  id             String        @id @default(cuid())
+  title          String
+  author         String
+  isbn           String        @unique
+  category       String
+  publisher      String?
+  publishedYear  Int?
+  totalCopies    Int           @default(1)
+  availableCopies Int          @default(1)
+  transactions   Transaction[]
+  bookRequests   BookRequest[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([title])
+  @@index([category])
+}
+
+model BookRequest {
+  id          String       @id @default(cuid())
+  profileId   String
+  bookId      String
+  status      RequestStatus @default(PENDING)
+  requestedAt DateTime     @default(now())
+  approvedAt  DateTime?
+  rejectedAt  DateTime?
+  notes       String?
+  profile     Profile      @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  book        Book         @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  transaction Transaction?
+
+  @@index([profileId, status])
+  @@index([bookId, status])
+}
+
+model Transaction {
+  id         String            @id @default(cuid())
+  profileId  String
+  bookId     String
+  requestId  String?           @unique
+  status     TransactionStatus @default(ISSUED)
+  issuedAt   DateTime          @default(now())
+  dueAt      DateTime
+  returnedAt DateTime?
+  fineAmount Decimal           @default(0) @db.Decimal(10, 2)
+  profile    Profile           @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  book       Book              @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  request    BookRequest?      @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([profileId, status])
+  @@index([bookId, status])
+  @@index([dueAt, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  actor     Profile? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([entity, entityId])
+}
