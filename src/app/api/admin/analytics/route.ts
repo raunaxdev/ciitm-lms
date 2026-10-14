@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, isAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -85,14 +86,18 @@ export async function GET(request: NextRequest) {
       totalIssued: totalIssued,
       topBooks: enrichedTopBooks,
       departmentUsage,
-      overdueUsers: overdueUsers.map((profile) => ({
+      overdueUsers: overdueUsers.map((profile: (typeof overdueUsers)[number]) => ({
         id: profile.id,
         name: profile.name,
         email: profile.email,
         rollNumber: profile.rollNumber,
         department: profile.department ?? "General",
         overdueItems: profile.transactions.length,
-        totalFine: profile.transactions.reduce((sum, transaction) => sum + Number(transaction.fineAmount ?? 0), 0),
+        totalFine: profile.transactions.reduce(
+          (sum: number, transaction: Prisma.TransactionGetPayload<{ select: { dueAt: true; fineAmount: true } }>) =>
+            sum + Number(transaction.fineAmount ?? 0),
+          0,
+        ),
       })),
     },
   });

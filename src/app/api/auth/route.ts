@@ -7,6 +7,7 @@ import {
   getAuthenticatedUser,
   getSessionCookieOptions,
 } from "@/lib/auth";
+import { internalServerError } from "@/lib/api-errors";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -45,11 +46,15 @@ const authRequestSchema = z.discriminatedUnion("action", [
 ]);
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthenticatedUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  try {
+    const user = await getAuthenticatedUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+    return NextResponse.json({ user });
+  } catch (error) {
+    return internalServerError(error, "GET /api/auth");
   }
-  return NextResponse.json({ user });
 }
 
 export async function POST(request: NextRequest) {
@@ -68,68 +73,72 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const input = result.data;
-  if (input.action === "logout") {
-    const response = NextResponse.json({ success: true });
-    response.cookies.set(AUTH_COOKIE_NAME, "", { ...getSessionCookieOptions(), maxAge: 0 });
-    return response;
-  }
+  try {
+    const input = result.data;
+    if (input.action === "logout") {
+      const response = NextResponse.json({ success: true });
+      response.cookies.set(AUTH_COOKIE_NAME, "", { ...getSessionCookieOptions(), maxAge: 0 });
+      return response;
+    }
 
-  const email = input.email.toLowerCase();
-  let profile;
+    const email = input.email.toLowerCase();
+    let profile;
 
-  if (input.action === "register") {
-    const passwordHash = await bcrypt.hash(input.password, 12);
-    const rollNumber = input.rollNumber?.trim() || null;
-    const department = input.department?.trim() || "General";
+    if (input.action === "register") {
+      const passwordHash = await bcrypt.hash(input.password, 12);
+      const rollNumber = input.rollNumber?.trim() || null;
+      const department = input.department?.trim() || "General";
 
-    try {
-      profile = await prisma.profile.create({
-        data: {
-          name: input.name,
-          email,
-          passwordHash,
-          role: "USER",
-          rollNumber,
-          department,
-        },
-        select: { id: true, name: true, email: true, role: true, rollNumber: true, department: true },
-      });
-    } catch (error) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "P2002"
-      ) {
-        const target = (error as { meta?: { target?: string[] } }).meta?.target ?? [];
-        if (target.includes("rollNumber")) {
-          return NextResponse.json({ error: "A student with this roll number already exists." }, { status: 409 });
+      try {
+        profile = await prisma.profile.create({
+          data: {
+            name: input.name,
+            email,
+            passwordHash,
+            role: "USER",
+            rollNumber,
+            department,
+          },
+          select: { id: true, name: true, email: true, role: true, rollNumber: true, department: true },
+        });
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "P2002"
+        ) {
+          const target = (error as { meta?: { target?: string[] } }).meta?.target ?? [];
+          if (target.includes("rollNumber")) {
+            return NextResponse.json({ error: "A student with this roll number already exists." }, { status: 409 });
+          }
+          return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
         }
-        return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
+        throw error;
       }
-      throw error;
+    } else {
+      const existing = await prisma.profile.findUnique({ where: { email } });
+      const passwordMatches =
+        existing?.isActive === true &&
+        (await bcrypt.compare(input.password, existing.passwordHash));
+      if (!existing || !passwordMatches) {
+        return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+      }
+      profile = {
+        id: existing.id,
+        name: existing.name,
+        email: existing.email,
+        role: existing.role,
+        rollNumber: existing.rollNumber,
+        department: existing.department,
+      };
     }
-  } else {
-    const existing = await prisma.profile.findUnique({ where: { email } });
-    const passwordMatches =
-      existing?.isActive === true &&
-      (await bcrypt.compare(input.password, existing.passwordHash));
-    if (!existing || !passwordMatches) {
-      return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
-    }
-    profile = {
-      id: existing.id,
-      name: existing.name,
-      email: existing.email,
-      role: existing.role,
-      rollNumber: existing.rollNumber,
-      department: existing.department,
-    };
-  }
 
-  const token = await createSessionToken(profile);
-  const response = NextResponse.json({ user: profile });
-  response.cookies.set(AUTH_COOKIE_NAME, token, getSessionCookieOptions());
-  return response;
+    const token = await createSessionToken(profile);
+    const response = NextResponse.json({ user: profile });
+    response.cookies.set(AUTH_COOKIE_NAME, token, getSessionCookieOptions());
+    return response;
+  } catch (error) {
+    return internalServerError(error, "POST /api/auth");
+  }
 }

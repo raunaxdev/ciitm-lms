@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthenticatedUser, isAdmin } from "@/lib/auth";
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     const dueAt = getDueDateFromNow();
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const approved = await tx.bookRequest.update({
         where: { id: requestEntry.id },
         data: { status: "APPROVED", approvedAt: new Date() },

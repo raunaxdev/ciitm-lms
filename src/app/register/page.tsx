@@ -100,6 +100,7 @@ export default function RegisterPage() {
             <input
               required
               type="email"
+              autoComplete="email"
               value={form.email}
               onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
               className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 focus:border-emerald-500 focus:outline-none"
@@ -113,6 +114,7 @@ export default function RegisterPage() {
               required
               minLength={10}
               type="password"
+              autoComplete="new-password"
               value={form.password}
               onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
               className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 focus:border-emerald-500 focus:outline-none"

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getAuthenticatedUser, isAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
+
+type CsvCell = string | number;
+type CsvRow = CsvCell[];
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
@@ -20,7 +24,7 @@ export async function GET(request: NextRequest) {
     const books = await prisma.book.findMany({ orderBy: { title: "asc" } });
     const rows = [
       ["Title", "Author", "ISBN", "Category", "Publisher", "Published Year", "Total Copies", "Available Copies"],
-      ...books.map((book) => [
+      ...books.map((book: Prisma.BookGetPayload<object>) => [
         book.title,
         book.author,
         book.isbn,
@@ -32,7 +36,7 @@ export async function GET(request: NextRequest) {
       ]),
     ];
 
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = rows.map((row: CsvRow) => row.map((cell: CsvCell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
     return new NextResponse(format === "xls" ? csv : csv, {
       headers: {
         "Content-Type": format === "xls" ? "application/vnd.ms-excel" : "text/csv; charset=utf-8",
@@ -48,7 +52,7 @@ export async function GET(request: NextRequest) {
 
   const rows = [
     ["Student", "Roll Number", "Department", "Book", "ISBN", "Issued At", "Due At", "Returned At", "Status", "Fine Amount"],
-    ...transactions.map((transaction) => [
+    ...transactions.map((transaction: Prisma.TransactionGetPayload<{ include: { profile: true; book: true } }>) => [
       transaction.profile.name,
       transaction.profile.rollNumber ?? "",
       transaction.profile.department ?? "",
@@ -62,7 +66,7 @@ export async function GET(request: NextRequest) {
     ]),
   ];
 
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const csv = rows.map((row: CsvRow) => row.map((cell: CsvCell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
   return new NextResponse(format === "xls" ? csv : csv, {
     headers: {
       "Content-Type": format === "xls" ? "application/vnd.ms-excel" : "text/csv; charset=utf-8",

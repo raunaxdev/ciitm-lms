@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthenticatedUser, isAdmin } from "@/lib/auth";
+import { internalServerError } from "@/lib/api-errors";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -17,94 +18,107 @@ const newBookSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const search = searchParams.get("search") ?? "";
-  const category = searchParams.get("category") ?? "";
-  const page = Math.max(1, Number(searchParams.get("page") ?? "1"));
-  const pageSize = Math.min(Math.max(1, Number(searchParams.get("pageSize") ?? "10")), 50);
-  const isSemanticSearch = searchParams.get("semantic") === "true";
+  try {
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") ?? "";
+    const category = searchParams.get("category") ?? "";
+    const requestedPage = Number(searchParams.get("page") ?? "1");
+    const requestedPageSize = Number(searchParams.get("pageSize") ?? "10");
+    const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+    const pageSize = Number.isFinite(requestedPageSize)
+      ? Math.min(Math.max(1, Math.floor(requestedPageSize)), 50)
+      : 10;
+    const isSemanticSearch = searchParams.get("semantic") === "true";
 
-  const where: Prisma.BookWhereInput = {};
-  const trimmedSearch = search.trim();
-  if (trimmedSearch) {
-    const searchTerms = Array.from(
-      new Set(
-        trimmedSearch
-          .toLowerCase()
-          .replace(/[^a-zA-Z0-9\s]/g, " ")
-          .split(/\s+/)
-          .filter((term) => term.length > 1),
-      ),
-    );
+    const where: Prisma.BookWhereInput = {};
+    const trimmedSearch = search.trim();
+    if (trimmedSearch) {
+      const searchTerms = Array.from(
+        new Set(
+          trimmedSearch
+            .toLowerCase()
+            .replace(/[^a-zA-Z0-9\s]/g, " ")
+            .split(/\s+/)
+            .filter((term) => term.length > 1),
+        ),
+      );
 
-    const searchPredicate = (term: string): Prisma.BookWhereInput[] => [
-      { title: { contains: term, mode: "insensitive" as const } },
-      { author: { contains: term, mode: "insensitive" as const } },
-      { isbn: { contains: term, mode: "insensitive" as const } },
-      { category: { contains: term, mode: "insensitive" as const } },
-    ];
+      const searchPredicate = (term: string): Prisma.BookWhereInput[] => [
+        { title: { contains: term, mode: "insensitive" as const } },
+        { author: { contains: term, mode: "insensitive" as const } },
+        { isbn: { contains: term, mode: "insensitive" as const } },
+        { category: { contains: term, mode: "insensitive" as const } },
+      ];
 
-    const semanticOrConditions = searchTerms.flatMap((term) => searchPredicate(term));
+      const semanticOrConditions = searchTerms.flatMap((term) => searchPredicate(term));
 
-    where.OR = isSemanticSearch
-      ? semanticOrConditions.length > 0
-        ? semanticOrConditions
-        : searchPredicate(trimmedSearch)
-      : searchPredicate(trimmedSearch);
-  }
+      where.OR = isSemanticSearch
+        ? semanticOrConditions.length > 0
+          ? semanticOrConditions
+          : searchPredicate(trimmedSearch)
+        : searchPredicate(trimmedSearch);
+    }
 
-  if (category.trim()) {
-    where.category = { contains: category.trim(), mode: "insensitive" };
-  }
+    if (category.trim()) {
+      where.category = { contains: category.trim(), mode: "insensitive" };
+    }
 
-  const [books, totalTitles, copyTotals] = await Promise.all([
-    prisma.book.findMany({
-      where,
-      orderBy: { title: "asc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      select: {
-        id: true,
-        title: true,
-        author: true,
-        isbn: true,
-        category: true,
-        publisher: true,
-        publishedYear: true,
-        totalCopies: true,
-        availableCopies: true,
+    const [books, totalTitles, copyTotals] = await Promise.all([
+      prisma.book.findMany({
+        where,
+        orderBy: { title: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          title: true,
+          author: true,
+          isbn: true,
+          category: true,
+          publisher: true,
+          publishedYear: true,
+          totalCopies: true,
+          availableCopies: true,
+        },
+      }),
+      prisma.book.count({ where }),
+      prisma.book.aggregate({
+        where,
+        _sum: { totalCopies: true, availableCopies: true },
+      }),
+    ]);
+
+    const totalCopies = copyTotals._sum.totalCopies ?? 0;
+    const availableCopies = copyTotals._sum.availableCopies ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalTitles / pageSize));
+
+    return NextResponse.json({
+      books,
+      metrics: {
+        totalTitles,
+        totalCopies,
+        availableCopies,
+        checkedOutCopies: totalCopies - availableCopies,
       },
-    }),
-    prisma.book.count({ where }),
-    prisma.book.aggregate({
-      where,
-      _sum: { totalCopies: true, availableCopies: true },
-    }),
-  ]);
-
-  const totalCopies = copyTotals._sum.totalCopies ?? 0;
-  const availableCopies = copyTotals._sum.availableCopies ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalTitles / pageSize));
-
-  return NextResponse.json({
-    books,
-    metrics: {
-      totalTitles,
-      totalCopies,
-      availableCopies,
-      checkedOutCopies: totalCopies - availableCopies,
-    },
-    pagination: {
-      page,
-      pageSize,
-      totalPages,
-      total: totalTitles,
-    },
-  });
+      pagination: {
+        page,
+        pageSize,
+        totalPages,
+        total: totalTitles,
+      },
+    });
+  } catch (error) {
+    return internalServerError(error, "GET /api/books");
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthenticatedUser(request);
+  let user: Awaited<ReturnType<typeof getAuthenticatedUser>>;
+  try {
+    user = await getAuthenticatedUser(request);
+  } catch (error) {
+    return internalServerError(error, "POST /api/books authentication");
+  }
   if (!user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
@@ -144,6 +158,6 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json({ error: "A book with this ISBN already exists." }, { status: 409 });
     }
-    throw error;
+    return internalServerError(error, "POST /api/books");
   }
 }

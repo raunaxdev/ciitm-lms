@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
 
     const dueAt = getDueDateFromNow();
 
-    const transaction = await prisma.$transaction(async (tx) => {
+    const transaction = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const updatedBook = await tx.book.update({
         where: { id: book.id },
         data: { availableCopies: { decrement: 1 } },
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
   const fineAmount = calculateFineAmount(activeTransaction.dueAt, returnedAt);
   const nextStatus = fineAmount > 0 ? TransactionStatus.OVERDUE : TransactionStatus.RETURNED;
 
-  const payment = await prisma.$transaction(async (tx) => {
+  const payment = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const updated = await tx.transaction.update({
       where: { id: activeTransaction.id },
       data: {

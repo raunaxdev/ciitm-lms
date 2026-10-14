@@ -3,14 +3,13 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'fallback-secret-at-least-32-chars-long'
+  process.env.JWT_SECRET || 'default_jwt_secret_must_be_32_chars_minimum'
 );
 
 export async function middleware(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
   const { pathname } = request.nextUrl;
 
-  // Protect Admin and Dashboard Routes
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
     if (!token) {
       return NextResponse.redirect(new URL('/login', request.url));
